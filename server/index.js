@@ -1,0 +1,917 @@
+// BACKEND: index.js
+
+const express = require('express');
+const cors = require('cors');
+const db = require('./firebase');
+
+const app = express();
+const PORT = 5000;
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.send('GeoTime Server is running :)');
+});
+
+app.get('/api/test', (req, res) => {
+  res.json({ message: "GeoTime server is running :)" });
+});
+
+app.get('/api/test-firebase', async (req, res) => {
+  console.log('=== /api/test-firebase called ===');
+  try {
+    console.log('Attempting to write to Firestore...');
+    const docRef = db.collection('test').doc('hello');
+    console.log('docRef created:', docRef.path);
+
+    await docRef.set({ message: 'It works!', timestamp: new Date() });
+    console.log('Write successful');
+
+    const doc = await docRef.get();
+    console.log('Document data:', doc.data());
+    res.json(doc.data());
+  } catch (error) {
+    console.error('Full error object:', error);
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    res.status(500).json({ error: error.message, code: error.code });
+  }
+});
+
+// GET all projects for dropdown
+app.get('/api/projects', async (req, res) => {
+  try {
+    const snapshot = await db.collection('projects').get();
+    const projects = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    res.json(projects);
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+});
+
+// TEMPORARY: Initialize inspectors collection
+app.post('/api/init-inspectors', async (req, res) => {
+  try {
+    const inspectors = [
+      { full_name: 'Inspector #001', assigned_sites: [] },
+      { full_name: 'Inspector #002', assigned_sites: [] },
+      { full_name: 'Inspector #003', assigned_sites: [] }
+    ];
+
+    const results = [];
+    inspectors.forEach((inspector, index) => {
+      const docId = `inspector_${String(index + 1).padStart(3, '0')}`;
+      db.collection('inspectors').doc(docId).set(inspector);
+      results.push({
+        id: docId,
+        ...inspector
+      });
+    });
+
+    res.json({
+      success: true,
+      message: 'Inspectors created successfully',
+      inspectors: results
+    });
+  } catch (error) {
+    console.error('Error creating inspectors:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Calculate distance between two GPS coordinates using Haversine formula
+ */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Generate formatted timestamp (HH_MM_AM/PM)
+ */
+function getFormattedTime(date) {
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}_${String(minutes).padStart(2, '0')}_${period}`;
+}
+
+/**
+ * Generate formatted date (YYYYMMDD)
+ */
+function getFormattedDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
+/**
+ * POST /api/shifts/clockin
+ */
+app.post('/api/shifts/clockin', async (req, res) => {
+  try {
+    const { projectId, projectName, phase, latitude, longitude, activity, overlapResolved } = req.body;
+
+    if (!projectId || !projectName || latitude === undefined || longitude === undefined || !activity) {
+      return res.status(400).json({ error: 'Missing required fields: projectId, projectName, latitude, longitude, activity' });
+    }
+
+    const radius = 150;
+    const getDistance = (workerLat, workerLon, projectLat, projectLon) => {
+      return calculateDistance(workerLat, workerLon, projectLat, projectLon);
+    };
+
+    const now = new Date();
+    const inspectorNameForId = 'inspector_001';
+    const formattedDate = getFormattedDate(now);
+    const formattedTime = getFormattedTime(now);
+
+    const allProjectsSnapshot = await db.collection('projects').get();
+    const nearbyProjects = [];
+    let selectedProjectNearby = false;
+
+    for (const doc of allProjectsSnapshot.docs) {
+      const otherProject = doc.data();
+      let isNearby = false;
+      let closestDistance = Infinity;
+
+      if (otherProject.locations && Array.isArray(otherProject.locations)) {
+        for (const location of otherProject.locations) {
+          const distance = getDistance(latitude, longitude, location.latitude, location.longitude);
+          closestDistance = Math.min(closestDistance, distance);
+          if (distance <= radius) {
+            isNearby = true;
+          }
+        }
+      }
+
+      if (isNearby) {
+        nearbyProjects.push({
+          projectId: doc.id,
+          projectName: otherProject.project_name,
+          distance: parseFloat(closestDistance.toFixed(2))
+        });
+
+        if (doc.id === projectId) {
+          selectedProjectNearby = true;
+        }
+      }
+    }
+
+    if (!selectedProjectNearby) {
+      const clockinFailId = `clockinfail_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+      await db.collection('clock_in_failures').doc(clockinFailId).set({
+        employee_name: 'Inspector #001',
+        project_id: projectId,
+        project_name: projectName,
+        error_message: 'Selected project outside geofence',
+        worker_location: { latitude, longitude },
+        timestamp: now
+      });
+
+      return res.status(403).json({
+        success: false,
+        error: 'Clock-in unsuccessful. Too far from site.'
+      });
+    }
+
+    if (nearbyProjects.length > 1 && !overlapResolved) {
+      return res.status(409).json({
+        success: false,
+        needsConfirmation: true,
+        message: 'Multiple projects detected. Please select which one you are clocking in to.',
+        nearbyProjects: nearbyProjects
+      });
+    }
+
+    const employeeName = 'Inspector #001';
+    const shiftId = `shift_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    await db.collection('shifts').doc(shiftId).set({
+      employee_name: employeeName,
+      clock_in_time: now,
+      clock_out_time: null,
+      status: 'ACTIVE',
+      breaks: [],
+      break_duration: 0,
+      shift_duration: 0
+    });
+
+    const siteVisitId = `sitevisit_shift_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    await db.collection('site_visits').doc(siteVisitId).set({
+      shift_id: shiftId,
+      project_name: projectName,
+      phase: phase || null,
+      entry_timestamp: now,
+      exit_timestamp: null,
+      location_coordinates: {
+        latitude: latitude,
+        longitude: longitude
+      }
+    });
+
+    const activityLogId = `activitylog_sitevisit_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    await db.collection('activity_logs').doc(activityLogId).set({
+      shift_id: shiftId,
+      site_visit_id: siteVisitId,
+      activity: activity,
+      description: activity,
+      start_timestamp: now,
+      end_timestamp: null,
+      duration: 0,
+      billable: 'Yes'
+    });
+
+    const clockinId = `clockin_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    await db.collection('clock_ins').doc(clockinId).set({
+      employee_name: employeeName,
+      project_name: projectName,
+      shift_id: shiftId,
+      timestamp: now
+    });
+
+    res.json({
+      success: true,
+      message: 'Clock-in successful.',
+      shiftId: shiftId,
+      siteVisitId: siteVisitId,
+      activityLogId: activityLogId
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/clockin:', error);
+
+    const now = new Date();
+    const inspectorNameForId = 'inspector_001';
+    const formattedDate = getFormattedDate(now);
+    const formattedTime = getFormattedTime(now);
+
+    const clockinFailId = `clockinfail_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    await db.collection('clock_in_failures').doc(clockinFailId).set({
+      error_message: error.message,
+      timestamp: now
+    });
+
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/startbreak
+ */
+app.post('/api/shifts/startbreak', async (req, res) => {
+  try {
+    const { shiftId } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const shiftData = shiftDoc.data();
+
+    if (shiftData.activeBreak) {
+      return res.status(400).json({ error: 'A break is already active' });
+    }
+
+    await db.collection('shifts').doc(shiftId).update({
+      activeBreak: {
+        break_start: now
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Break started',
+      breakStart: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/startbreak:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/endbreak
+ * CHANGED: Now stores duration in seconds instead of minutes
+ */
+app.post('/api/shifts/endbreak', async (req, res) => {
+  try {
+    const { shiftId } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const shiftData = shiftDoc.data();
+
+    if (!shiftData.activeBreak) {
+      return res.status(400).json({ error: 'No active break' });
+    }
+
+    const breakStart = shiftData.activeBreak.break_start.toDate();
+    const breakDurationSeconds = Math.round((now - breakStart) / 1000);
+
+    const breakObj = {
+      break_start: breakStart,
+      break_end: now,
+      duration: breakDurationSeconds
+    };
+
+    const updatedBreaks = shiftData.breaks || [];
+    updatedBreaks.push(breakObj);
+
+    const totalBreakDuration = updatedBreaks.reduce((sum, brk) => sum + brk.duration, 0);
+
+    await db.collection('shifts').doc(shiftId).update({
+      breaks: updatedBreaks,
+      break_duration: totalBreakDuration,
+      activeBreak: null
+    });
+
+    res.json({
+      success: true,
+      message: 'Break ended',
+      breakDuration: breakDurationSeconds,
+      totalBreakDuration: totalBreakDuration
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/endbreak:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/startactivity
+ */
+app.post('/api/shifts/startactivity', async (req, res) => {
+  try {
+    const { shiftId, activity, description } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    // Find the active site visit
+    const siteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .where('exit_timestamp', '==', null)
+      .get();
+
+    let siteVisitId = null;
+    if (!siteVisitsSnapshot.empty) {
+      siteVisitId = siteVisitsSnapshot.docs[siteVisitsSnapshot.docs.length - 1].id;
+    }
+
+    const activityLogId = `activitylog_${shiftId}_${Date.now()}`;
+    await db.collection('activity_logs').doc(activityLogId).set({
+      shift_id: shiftId,
+      site_visit_id: siteVisitId,
+      activity: activity || 'Unnamed Activity',
+      description: description || activity || 'Unnamed Activity',
+      start_timestamp: now,
+      end_timestamp: null,
+      duration: 0,
+      billable: 'Yes'
+    });
+
+    res.json({
+      success: true,
+      message: 'Activity started',
+      activityLogId: activityLogId,
+      startTime: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/startactivity:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/endactivity
+ * Stores duration in seconds instead of minutes
+ * Accepts elapsedTimeMs from frontend (already excludes break time)
+ */
+app.post('/api/shifts/endactivity', async (req, res) => {
+  try {
+    const { shiftId, elapsedTimeMs } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const activityLogsSnapshot = await db.collection('activity_logs')
+      .where('shift_id', '==', shiftId)
+      .where('end_timestamp', '==', null)
+      .get();
+
+    if (activityLogsSnapshot.empty) {
+      return res.status(404).json({ error: 'No active activity found' });
+    }
+
+    // Get the last one (most recent) by sorting client-side
+    const activityDocs = activityLogsSnapshot.docs;
+    const activityLogDoc = activityDocs[activityDocs.length - 1];
+
+    // Use elapsedTimeMs from frontend if provided (already excludes breaks)
+    // Otherwise fall back to calculating from timestamps
+    let durationSeconds;
+    if (elapsedTimeMs !== undefined) {
+      durationSeconds = Math.round(elapsedTimeMs / 1000);
+    } else {
+      const activityData = activityLogDoc.data();
+      const startTime = activityData.start_timestamp.toDate();
+      durationSeconds = Math.round((now - startTime) / 1000);
+    }
+
+    await db.collection('activity_logs').doc(activityLogDoc.id).update({
+      end_timestamp: now,
+      duration: durationSeconds
+    });
+
+    res.json({
+      success: true,
+      message: 'Activity ended',
+      activityLogId: activityLogDoc.id,
+      duration: durationSeconds,
+      endTime: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/endactivity:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/startsitevisit
+ */
+app.post('/api/shifts/startsitevisit', async (req, res) => {
+  try {
+    const { shiftId, projectName, latitude, longitude } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const siteVisitId = `sitevisit_${shiftId}_${Date.now()}`;
+    await db.collection('site_visits').doc(siteVisitId).set({
+      shift_id: shiftId,
+      project_name: projectName || 'Unnamed Site',
+      phase: null,
+      entry_timestamp: now,
+      exit_timestamp: null,
+      location_coordinates: {
+        latitude: latitude || 0,
+        longitude: longitude || 0
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Site visit started',
+      siteVisitId: siteVisitId,
+      entryTime: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/startsitevisit:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/updatephase
+ */
+app.post('/api/shifts/updatephase', async (req, res) => {
+  try {
+    const { shiftId, phase } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const siteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .where('exit_timestamp', '==', null)
+      .get();
+
+    if (siteVisitsSnapshot.empty) {
+      return res.status(404).json({ error: 'No active site visit found' });
+    }
+
+    const siteVisitDoc = siteVisitsSnapshot.docs[0];
+
+    await db.collection('site_visits').doc(siteVisitDoc.id).update({
+      phase: phase || null
+    });
+
+    res.json({
+      success: true,
+      message: 'Phase updated',
+      phase: phase
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/updatephase:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/endsitevisit
+ * Stores duration in seconds instead of minutes
+ * Accepts elapsedTimeMs from frontend (already excludes break time)
+ */
+app.post('/api/shifts/endsitevisit', async (req, res) => {
+  try {
+    const { shiftId, elapsedTimeMs } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const siteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .where('exit_timestamp', '==', null)
+      .get();
+
+    if (siteVisitsSnapshot.empty) {
+      return res.status(404).json({ error: 'No active site visit found' });
+    }
+
+    // Get the last one (most recent) by sorting client-side
+    const siteVisitDocs = siteVisitsSnapshot.docs;
+    const siteVisitDoc = siteVisitDocs[siteVisitDocs.length - 1];
+
+    // Use elapsedTimeMs from frontend if provided (already excludes breaks)
+    // Otherwise fall back to calculating from timestamps
+    let durationSeconds;
+    if (elapsedTimeMs !== undefined) {
+      durationSeconds = Math.round(elapsedTimeMs / 1000);
+    } else {
+      const siteVisitData = siteVisitDoc.data();
+      const entryTime = siteVisitData.entry_timestamp.toDate();
+      durationSeconds = Math.round((now - entryTime) / 1000);
+    }
+
+    await db.collection('site_visits').doc(siteVisitDoc.id).update({
+      exit_timestamp: now,
+      duration: durationSeconds
+    });
+
+    res.json({
+      success: true,
+      message: 'Site visit ended',
+      siteVisitId: siteVisitDoc.id,
+      duration: durationSeconds,
+      exitTime: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/endsitevisit:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/clockout
+ * Stores shift_duration in seconds instead of minutes
+ */
+app.post('/api/shifts/clockout', async (req, res) => {
+  try {
+    const { shiftId, latitude, longitude } = req.body;
+
+    if (!shiftId) {
+      return res.status(400).json({ error: 'Missing required field: shiftId' });
+    }
+
+    const now = new Date();
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const shiftData = shiftDoc.data();
+
+    const openActivitiesSnapshot = await db.collection('activity_logs')
+      .where('shift_id', '==', shiftId)
+      .where('end_timestamp', '==', null)
+      .get();
+
+      //console.log(`Found ${openActivitiesSnapshot.docs.length} open activities for shift ${shiftId}`);
+
+    for (const activityDoc of openActivitiesSnapshot.docs) {
+      const activityData = activityDoc.data();
+      const startTime = activityData.start_timestamp.toDate();
+      const durationSeconds = Math.round((now - startTime) / 1000);
+      //console.log(`Activity ${activityDoc.id}: startTime=${startTime}, now=${now}, durationSeconds=${durationSeconds}`);
+
+      await db.collection('activity_logs').doc(activityDoc.id).update({
+        end_timestamp: now,
+        duration: durationSeconds
+      });
+    }
+
+    const openSiteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .where('exit_timestamp', '==', null)
+      .get();
+
+    for (const siteVisitDoc of openSiteVisitsSnapshot.docs) {
+      const siteVisitData = siteVisitDoc.data();
+      const entryTime = siteVisitData.entry_timestamp.toDate();
+      const durationSeconds = Math.round((now - entryTime) / 1000);
+
+      await db.collection('site_visits').doc(siteVisitDoc.id).update({
+        exit_timestamp: now,
+        duration: durationSeconds
+      });
+    }
+
+    const clockInTime = shiftData.clock_in_time.toDate();
+    const totalElapsedSeconds = Math.round((now - clockInTime) / 1000);
+    const breakDuration = shiftData.break_duration || 0;
+    const shiftDuration = totalElapsedSeconds - breakDuration;
+
+    await db.collection('shifts').doc(shiftId).update({
+      clock_out_time: now,
+      shift_duration: shiftDuration,
+      status: 'COMPLETED'
+    });
+
+    res.json({
+      success: true,
+      message: 'Clock-out successful',
+      shiftId: shiftId,
+      clockOutTime: now,
+      totalElapsedSeconds: totalElapsedSeconds,
+      breakDuration: breakDuration,
+      shiftDuration: shiftDuration
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/clockout:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/shifts/:shiftId/summary
+ * Returns all durations in seconds instead of minutes
+ * Fetch complete shift summary with activities grouped under site visits
+ */
+app.get('/api/shifts/:shiftId/summary', async (req, res) => {
+  try {
+    const { shiftId } = req.params;
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const shiftData = shiftDoc.data();
+
+    // Fetch all activities for this shift
+    const activitiesSnapshot = await db.collection('activity_logs')
+      .where('shift_id', '==', shiftId)
+      .get();
+
+    const activitiesByVisit = {};
+    const allActivities = [];
+
+    activitiesSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      const activity = {
+        id: doc.id,
+        ...data,
+        start_timestamp: data.start_timestamp?.toDate ? data.start_timestamp.toDate() : data.start_timestamp,
+        end_timestamp: data.end_timestamp?.toDate ? data.end_timestamp.toDate() : data.end_timestamp,
+      };
+      allActivities.push(activity);
+
+      // Group by site_visit_id
+      const siteVisitId = data.site_visit_id;
+      if (siteVisitId) {
+        if (!activitiesByVisit[siteVisitId]) {
+          activitiesByVisit[siteVisitId] = [];
+        }
+        activitiesByVisit[siteVisitId].push(activity);
+      }
+    });
+
+    // Fetch all site visits for this shift
+    const siteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .get();
+
+    const site_visits = siteVisitsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        entry_timestamp: data.entry_timestamp?.toDate ? data.entry_timestamp.toDate() : data.entry_timestamp,
+        exit_timestamp: data.exit_timestamp?.toDate ? data.exit_timestamp.toDate() : data.exit_timestamp,
+        activities: activitiesByVisit[doc.id] || []
+      };
+    });
+
+    // Format breaks array
+    const breaks = (shiftData.breaks || []).map(brk => ({
+      break_start: brk.break_start?.toDate ? brk.break_start.toDate() : brk.break_start,
+      break_end: brk.break_end?.toDate ? brk.break_end.toDate() : brk.break_end,
+      duration: brk.duration || 0,
+    }));
+
+    // Calculate total elapsed time from clock_in to clock_out (in seconds)
+    const clockInTime = shiftData.clock_in_time?.toDate ? shiftData.clock_in_time.toDate() : shiftData.clock_in_time;
+    const clockOutTime = shiftData.clock_out_time?.toDate ? shiftData.clock_out_time.toDate() : shiftData.clock_out_time;
+    const totalElapsedSeconds = Math.round((clockOutTime - clockInTime) / 1000);
+
+    res.json({
+      id: shiftId,
+      employee_name: shiftData.employee_name,
+      project_name: site_visits.length > 0 ? site_visits[0].project_name : 'Unknown',
+      phase: site_visits.length > 0 ? site_visits[0].phase : null,
+      clock_in_time: clockInTime,
+      clock_out_time: clockOutTime,
+      shift_duration: shiftData.shift_duration || 0,
+      break_duration: shiftData.break_duration || 0,
+      total_elapsed_seconds: totalElapsedSeconds,
+      site_visits: site_visits,
+      breaks: breaks,
+      status: shiftData.status,
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/:shiftId/summary:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/:shiftId/submit
+ * Mark shift as SUBMITTED and create audit logs for changed fields
+ */
+app.post('/api/shifts/:shiftId/submit', async (req, res) => {
+  try {
+    const { shiftId } = req.params;
+    const { changes } = req.body;
+
+    const shiftDoc = await db.collection('shifts').doc(shiftId).get();
+    if (!shiftDoc.exists) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const now = new Date();
+    const employeeName = shiftDoc.data().employee_name;
+
+    // Create audit logs for each changed field
+    if (changes && Array.isArray(changes) && changes.length > 0) {
+      for (const change of changes) {
+        // Only create audit log if value actually changed
+        if (change.previousValue !== change.newValue) {
+          const auditId = `auditlog_${shiftId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await db.collection('audit_logs').doc(auditId).set({
+            shift_id: shiftId,
+            document_id: change.documentId,
+            document_type: change.documentType,
+            inspector_id: employeeName,
+            field_changed: change.fieldChanged,
+            previous_value: String(change.previousValue),
+            new_value: String(change.newValue),
+            timestamp: now
+          });
+        }
+      }
+    }
+
+    // Update shift status to SUBMITTED
+    await db.collection('shifts').doc(shiftId).update({
+      status: 'SUBMITTED',
+      submitted_at: now
+    });
+
+    res.json({
+      success: true,
+      message: 'Shift submitted successfully',
+      shiftId: shiftId,
+      submittedAt: now
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/:shiftId/submit:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/shifts/:shiftId/updatefield
+ * Update a single field and track it for audit
+ */
+app.post('/api/shifts/:shiftId/updatefield', async (req, res) => {
+  try {
+    const { shiftId } = req.params;
+    const { documentId, documentType, fieldName, newValue } = req.body;
+
+    if (!documentId || !documentType || !fieldName) {
+      return res.status(400).json({ error: 'Missing required fields: documentId, documentType, fieldName' });
+    }
+
+    const collection = documentType === 'activity_log' ? 'activity_logs' :
+                      documentType === 'site_visit' ? 'site_visits' :
+                      documentType === 'shift' ? 'shifts' : null;
+
+    if (!collection) {
+      return res.status(400).json({ error: 'Invalid documentType' });
+    }
+
+    // Get the document to find previous value
+    const doc = await db.collection(collection).doc(documentId).get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const previousValue = doc.data()[fieldName];
+
+    // Update the field
+    await db.collection(collection).doc(documentId).update({
+      [fieldName]: newValue
+    });
+
+    res.json({
+      success: true,
+      message: 'Field updated',
+      documentId: documentId,
+      fieldName: fieldName,
+      previousValue: previousValue,
+      newValue: newValue
+    });
+  } catch (error) {
+    console.error('Error in /api/shifts/:shiftId/updatefield:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//
+app.get('/api/debug/firestore-collections', async (req, res) => {
+  try {
+    const collectionsToCheck = ['activities', 'projects', 'shifts', 'site_visits', 'activity_logs', 'inspectors', 'breaks', 'clock_ins', 'clock_in_failures', 'audit_logs'];
+    const result = {};
+
+    for (const collectionName of collectionsToCheck) {
+      const snapshot = await db.collection(collectionName).get();
+      result[collectionName] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+      }));
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching Firestore collections:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});

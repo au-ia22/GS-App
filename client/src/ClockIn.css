@@ -1,0 +1,403 @@
+/* Mobile-first design for GeoTime Clock In */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.clockin-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f5f5;
+  font-family: Georgia, serif;
+  color: #333;
+}
+
+/* Header */
+.clockin-header {
+  background-color: #ffffff;
+  background-image:
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60"><rect width="60" height="60" fill="%23ffffff"/><path d="M 0 15 Q 7.5 12 15 15 Q 22.5 18 30 15 Q 37.5 12 45 15 Q 52.5 18 60 15" stroke="%23d3d1c7" stroke-width="1.2" fill="none" opacity="0.5"/><path d="M 0 30 Q 7.5 27 15 30 Q 22.5 33 30 30 Q 37.5 27 45 30 Q 52.5 33 60 30" stroke="%23d3d1c7" stroke-width="1.2" fill="none" opacity="0.5"/><path d="M 0 45 Q 7.5 42 15 45 Q 22.5 48 30 45 Q 37.5 42 45 45 Q 52.5 48 60 45" stroke="%23d3d1c7" stroke-width="1.2" fill="none" opacity="0.5"/></svg>');
+  background-size: 60px 60px;
+  background-position: 0 -10px;
+  background-attachment: fixed;
+  padding: 24px 16px;
+  color: #333;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.clockin-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-family: Georgia, serif;
+}
+
+.clockin-header .subtitle {
+  font-size: 13px;
+  color: #666;
+  font-weight: 400;
+  font-family: Georgia, serif;
+}
+
+/* Summary page header with gray box and corner dots only */
+.clockin-header-summary {
+  background-color: #ffffff;
+  background-image: none;
+  background-size: auto;
+  background-position: auto;
+  background-attachment: scroll;
+  padding: 24px 16px;
+  color: #333;
+  text-align: center;
+}
+
+.clockin-header-summary h1 {
+  background-color: #ffffff;
+  border: 2px solid #d3d1c7;
+  padding: 12px 20px;
+  display: inline-block;
+  border-radius: 4px;
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-family: Georgia, serif;
+  position: relative;
+  overflow: visible;
+}
+
+/* Polka dots on all four corners of gray box */
+.clockin-header-summary h1::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  background: #333;
+  border-radius: 50%;
+  box-shadow:
+    -16px 0 0 -4px #333,
+    0 32px 0 -4px #333,
+    -16px 32px 0 -4px #333;
+}
+
+.clockin-header-summary h1::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  background: #333;
+  border-radius: 50%;
+  box-shadow:
+    16px 0 0 -4px #333,
+    0 32px 0 -4px #333,
+    16px 32px 0 -4px #333;
+}
+
+.clockin-header-summary .subtitle {
+  font-size: 13px;
+  color: #666;
+  font-weight: 400;
+  font-family: Georgia, serif;
+}
+
+/* Main content */
+.clockin-content {
+  flex: 1;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Form group */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: Georgia, serif;
+}
+
+/* Name display */
+.name-display {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+.worker-name {
+  font-size: 16px;
+  color: #333;
+  font-weight: 600;
+  margin: 0;
+  font-family: Georgia, serif;
+}
+
+/* Searchable dropdown container */
+.search-dropdown-container {
+  position: relative;
+  width: 100%;
+}
+
+.search-input {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  background: white;
+  color: #333;
+  font-weight: 500;
+  width: 100%;
+  cursor: text;
+  transition: box-shadow 0.2s ease;
+  font-family: Georgia, serif;
+}
+
+.search-input:focus {
+  outline: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.search-input::placeholder {
+  color: #999;
+}
+
+.search-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #333;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.dropdown-item {
+  padding: 12px 16px;
+  font-size: 16px;
+  color: #333;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f0f0f0;
+  font-family: Georgia, serif;
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item:hover:not(.disabled) {
+  background-color: #f5f5f5;
+}
+
+.dropdown-item.disabled {
+  color: #999;
+  cursor: not-allowed;
+  background-color: #fafafa;
+}
+
+/* Buttons */
+.btn {
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: Georgia, serif;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Clock in button (primary action) */
+.btn-clock-in {
+  background: #333;
+  color: white;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 18px;
+  padding: 16px 20px;
+  margin-top: 12px;
+}
+
+.btn-clock-in:hover:not(:disabled) {
+  background: #1a1a1a;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.btn-clock-in:disabled {
+  background: #ccc;
+}
+
+/* Messages */
+.message {
+  padding: 14px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  animation: slideIn 0.3s ease;
+  font-family: Georgia, serif;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-success {
+  background: #d4edda;
+  color: #155724;
+  border-left: 4px solid #28a745;
+}
+
+.message-error {
+  background: #f8d7da;
+  color: #721c24;
+  border-left: 4px solid #dc3545;
+}
+
+.message-info {
+  background: #d1ecf1;
+  color: #0c5460;
+  border-left: 4px solid #17a2b8;
+}
+
+/* Footer */
+.clockin-footer {
+  background: white;
+  padding: 16px;
+  color: #333;
+  text-align: center;
+  font-size: 12px;
+  margin-top: auto;
+  border-top: 1px solid #ddd;
+  font-family: Georgia, serif;
+}
+
+.clockin-footer p {
+  opacity: 0.8;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 8px 12px;
+  margin: 4px 0;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  color: #333;
+  font-family: Georgia, serif;
+}
+
+.edit-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.summary-section h3 {
+  font-size: 16px;
+  color: #333;
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+  font-family: Georgia, serif;
+}
+
+.summary-item {
+  background: white;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.summary-item label {
+  display: block;
+  font-size: 12px;
+  color: #888;
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-family: Georgia, serif;
+}
+
+.summary-item p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #333;
+  font-family: Georgia, serif;
+}
+
+.summary-item strong {
+  font-size: 16px;
+  color: #333;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-family: Georgia, serif;
+}
+
+/* Tablet and larger screens */
+@media (min-width: 768px) {
+  .clockin-header h1 {
+    font-size: 32px;
+  }
+
+  .clockin-content {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  .btn {
+    font-size: 16px;
+    padding: 16px 24px;
+  }
+
+  .swipe-hint {
+    font-size: 12px;
+    color: #888;
+    margin-top: 15px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-family: Georgia, serif;
+  }
+}
