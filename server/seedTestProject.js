@@ -70,6 +70,7 @@ async function addTestProject() {
 addTestProject();
 */
 
+/*
 const admin = require('firebase-admin');
 const axios = require('axios');
 require('dotenv').config();
@@ -133,6 +134,48 @@ async function addTestProject() {
     }
   } else {
     console.log(`✗ Geocoding failed: ${geocodeResult.error}`);
+  }
+
+  process.exit(0);
+}
+
+addTestProject();
+*/
+
+const admin = require('firebase-admin');
+const axios = require('axios');
+
+// Initialize Firebase
+const serviceAccount = require('./serviceAccountKey.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+const db = admin.firestore();
+
+async function addTestProject() {
+  const projectId = 'G00-001';
+  const projectName = 'Silentia Project';
+  const address = '1004 W Ninth Ave King of Prussia PA 19406';
+
+  try {
+    await db.collection('projects').doc(projectId).set({
+      project_name: projectName,
+      address: address,
+      locations: [
+        {
+          address: address,
+          latitude: 40.102316,
+          longitude: -75.413119
+        }
+      ],
+      radius_meters: 150,
+      phases: ["Phase 1 S", "Phase 2 S"]
+    });
+
+    console.log(`✓ ${projectId} seeded to Firestore`);
+    console.log(`  Coordinates: 40.102316, -75.413119`);
+  } catch (error) {
+    console.log(`✗ Firestore write failed: ${error.message}`);
   }
 
   process.exit(0);

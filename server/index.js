@@ -1,5 +1,4 @@
-// BACKEND: index.js
-
+// index.js
 const express = require('express');
 const cors = require('cors');
 const db = require('./firebase');
@@ -39,7 +38,6 @@ app.get('/api/test-firebase', async (req, res) => {
   }
 });
 
-// GET all projects for dropdown
 app.get('/api/projects', async (req, res) => {
   try {
     const snapshot = await db.collection('projects').get();
@@ -54,39 +52,20 @@ app.get('/api/projects', async (req, res) => {
   }
 });
 
-// TEMPORARY: Initialize inspectors collection
-app.post('/api/init-inspectors', async (req, res) => {
+app.get('/api/inspectors', async (req, res) => {
   try {
-    const inspectors = [
-      { full_name: 'Inspector #001', assigned_sites: [] },
-      { full_name: 'Inspector #002', assigned_sites: [] },
-      { full_name: 'Inspector #003', assigned_sites: [] }
-    ];
-
-    const results = [];
-    inspectors.forEach((inspector, index) => {
-      const docId = `inspector_${String(index + 1).padStart(3, '0')}`;
-      db.collection('inspectors').doc(docId).set(inspector);
-      results.push({
-        id: docId,
-        ...inspector
-      });
-    });
-
-    res.json({
-      success: true,
-      message: 'Inspectors created successfully',
-      inspectors: results
-    });
+    const snapshot = await db.collection('inspectors').get();
+    const inspectors = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    res.json(inspectors);
   } catch (error) {
-    console.error('Error creating inspectors:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error fetching inspectors:', error);
+    res.status(500).json({ error: 'Failed to fetch inspectors' });
   }
 });
 
-/**
- * Calculate distance between two GPS coordinates using Haversine formula
- */
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -99,9 +78,6 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-/**
- * Generate formatted timestamp (HH_MM_AM/PM)
- */
 function getFormattedTime(date) {
   const hours = date.getHours();
   const minutes = date.getMinutes();
@@ -110,9 +86,6 @@ function getFormattedTime(date) {
   return `${displayHours}_${String(minutes).padStart(2, '0')}_${period}`;
 }
 
-/**
- * Generate formatted date (YYYYMMDD)
- */
 function getFormattedDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -120,15 +93,12 @@ function getFormattedDate(date) {
   return `${year}${month}${day}`;
 }
 
-/**
- * POST /api/shifts/clockin
- */
 app.post('/api/shifts/clockin', async (req, res) => {
   try {
-    const { projectId, projectName, phase, latitude, longitude, activity, overlapResolved } = req.body;
+    const { projectId, projectName, phase, latitude, longitude, activity, inspectorName, overlapResolved } = req.body;
 
-    if (!projectId || !projectName || latitude === undefined || longitude === undefined || !activity) {
-      return res.status(400).json({ error: 'Missing required fields: projectId, projectName, latitude, longitude, activity' });
+    if (!projectId || !projectName || latitude === undefined || longitude === undefined || !activity || !inspectorName) {
+      return res.status(400).json({ error: 'Missing required fields: projectId, projectName, latitude, longitude, activity, inspectorName' });
     }
 
     const radius = 150;
@@ -137,7 +107,6 @@ app.post('/api/shifts/clockin', async (req, res) => {
     };
 
     const now = new Date();
-    const inspectorNameForId = 'inspector_001';
     const formattedDate = getFormattedDate(now);
     const formattedTime = getFormattedTime(now);
 
@@ -174,9 +143,9 @@ app.post('/api/shifts/clockin', async (req, res) => {
     }
 
     if (!selectedProjectNearby) {
-      const clockinFailId = `clockinfail_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+      const clockinFailId = `clockinfail_${formattedDate}_${formattedTime}_${Date.now()}`;
       await db.collection('clock_in_failures').doc(clockinFailId).set({
-        employee_name: 'Inspector #001',
+        employee_name: inspectorName,
         project_id: projectId,
         project_name: projectName,
         error_message: 'Selected project outside geofence',
@@ -190,17 +159,8 @@ app.post('/api/shifts/clockin', async (req, res) => {
       });
     }
 
-    if (nearbyProjects.length > 1 && !overlapResolved) {
-      return res.status(409).json({
-        success: false,
-        needsConfirmation: true,
-        message: 'Multiple projects detected. Please select which one you are clocking in to.',
-        nearbyProjects: nearbyProjects
-      });
-    }
-
-    const employeeName = 'Inspector #001';
-    const shiftId = `shift_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    const employeeName = inspectorName;
+    const shiftId = `shift_${formattedDate}_${formattedTime}_${Date.now()}`;
     await db.collection('shifts').doc(shiftId).set({
       employee_name: employeeName,
       clock_in_time: now,
@@ -211,7 +171,7 @@ app.post('/api/shifts/clockin', async (req, res) => {
       shift_duration: 0
     });
 
-    const siteVisitId = `sitevisit_shift_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    const siteVisitId = `sitevisit_${shiftId}_${Date.now()}`;
     await db.collection('site_visits').doc(siteVisitId).set({
       shift_id: shiftId,
       project_name: projectName,
@@ -224,7 +184,7 @@ app.post('/api/shifts/clockin', async (req, res) => {
       }
     });
 
-    const activityLogId = `activitylog_sitevisit_01_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    const activityLogId = `activitylog_${shiftId}_${Date.now()}`;
     await db.collection('activity_logs').doc(activityLogId).set({
       shift_id: shiftId,
       site_visit_id: siteVisitId,
@@ -236,7 +196,7 @@ app.post('/api/shifts/clockin', async (req, res) => {
       billable: 'Yes'
     });
 
-    const clockinId = `clockin_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    const clockinId = `clockin_${formattedDate}_${formattedTime}_${Date.now()}`;
     await db.collection('clock_ins').doc(clockinId).set({
       employee_name: employeeName,
       project_name: projectName,
@@ -255,11 +215,10 @@ app.post('/api/shifts/clockin', async (req, res) => {
     console.error('Error in /api/shifts/clockin:', error);
 
     const now = new Date();
-    const inspectorNameForId = 'inspector_001';
     const formattedDate = getFormattedDate(now);
     const formattedTime = getFormattedTime(now);
 
-    const clockinFailId = `clockinfail_${inspectorNameForId}_${formattedDate}_${formattedTime}`;
+    const clockinFailId = `clockinfail_${formattedDate}_${formattedTime}_${Date.now()}`;
     await db.collection('clock_in_failures').doc(clockinFailId).set({
       error_message: error.message,
       timestamp: now
@@ -269,9 +228,6 @@ app.post('/api/shifts/clockin', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/startbreak
- */
 app.post('/api/shifts/startbreak', async (req, res) => {
   try {
     const { shiftId } = req.body;
@@ -310,10 +266,6 @@ app.post('/api/shifts/startbreak', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/endbreak
- * CHANGED: Now stores duration in seconds instead of minutes
- */
 app.post('/api/shifts/endbreak', async (req, res) => {
   try {
     const { shiftId } = req.body;
@@ -358,7 +310,7 @@ app.post('/api/shifts/endbreak', async (req, res) => {
     res.json({
       success: true,
       message: 'Break ended',
-      breakDuration: breakDurationSeconds,
+      breakDurationSeconds: breakDurationSeconds,
       totalBreakDuration: totalBreakDuration
     });
   } catch (error) {
@@ -367,9 +319,6 @@ app.post('/api/shifts/endbreak', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/startactivity
- */
 app.post('/api/shifts/startactivity', async (req, res) => {
   try {
     const { shiftId, activity, description } = req.body;
@@ -385,7 +334,6 @@ app.post('/api/shifts/startactivity', async (req, res) => {
       return res.status(404).json({ error: 'Shift not found' });
     }
 
-    // Find the active site visit
     const siteVisitsSnapshot = await db.collection('site_visits')
       .where('shift_id', '==', shiftId)
       .where('exit_timestamp', '==', null)
@@ -420,11 +368,6 @@ app.post('/api/shifts/startactivity', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/endactivity
- * Stores duration in seconds instead of minutes
- * Accepts elapsedTimeMs from frontend (already excludes break time)
- */
 app.post('/api/shifts/endactivity', async (req, res) => {
   try {
     const { shiftId, elapsedTimeMs } = req.body;
@@ -441,22 +384,25 @@ app.post('/api/shifts/endactivity', async (req, res) => {
       .get();
 
     if (activityLogsSnapshot.empty) {
-      return res.status(404).json({ error: 'No active activity found' });
+      return res.json({
+        success: true,
+        message: 'Activity already ended or does not exist',
+        activityLogId: null,
+        duration: 0,
+        endTime: now
+      });
     }
 
-    // Get the last one (most recent) by sorting client-side
     const activityDocs = activityLogsSnapshot.docs;
     const activityLogDoc = activityDocs[activityDocs.length - 1];
 
-    // Use elapsedTimeMs from frontend if provided (already excludes breaks)
-    // Otherwise fall back to calculating from timestamps
     let durationSeconds;
     if (elapsedTimeMs !== undefined) {
-      durationSeconds = Math.round(elapsedTimeMs / 1000);
+      durationSeconds = Math.floor(elapsedTimeMs / 1000);
     } else {
       const activityData = activityLogDoc.data();
       const startTime = activityData.start_timestamp.toDate();
-      durationSeconds = Math.round((now - startTime) / 1000);
+      durationSeconds = Math.floor((now - startTime) / 1000);
     }
 
     await db.collection('activity_logs').doc(activityLogDoc.id).update({
@@ -477,12 +423,9 @@ app.post('/api/shifts/endactivity', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/startsitevisit
- */
 app.post('/api/shifts/startsitevisit', async (req, res) => {
   try {
-    const { shiftId, projectName, latitude, longitude } = req.body;
+    const { shiftId, projectName, phase, latitude, longitude } = req.body;
 
     if (!shiftId) {
       return res.status(400).json({ error: 'Missing required field: shiftId' });
@@ -499,7 +442,7 @@ app.post('/api/shifts/startsitevisit', async (req, res) => {
     await db.collection('site_visits').doc(siteVisitId).set({
       shift_id: shiftId,
       project_name: projectName || 'Unnamed Site',
-      phase: null,
+      phase: phase || null,
       entry_timestamp: now,
       exit_timestamp: null,
       location_coordinates: {
@@ -520,9 +463,6 @@ app.post('/api/shifts/startsitevisit', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/updatephase
- */
 app.post('/api/shifts/updatephase', async (req, res) => {
   try {
     const { shiftId, phase } = req.body;
@@ -557,11 +497,6 @@ app.post('/api/shifts/updatephase', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/endsitevisit
- * Stores duration in seconds instead of minutes
- * Accepts elapsedTimeMs from frontend (already excludes break time)
- */
 app.post('/api/shifts/endsitevisit', async (req, res) => {
   try {
     const { shiftId, elapsedTimeMs } = req.body;
@@ -581,20 +516,34 @@ app.post('/api/shifts/endsitevisit', async (req, res) => {
       return res.status(404).json({ error: 'No active site visit found' });
     }
 
-    // Get the last one (most recent) by sorting client-side
     const siteVisitDocs = siteVisitsSnapshot.docs;
     const siteVisitDoc = siteVisitDocs[siteVisitDocs.length - 1];
 
-    // Use elapsedTimeMs from frontend if provided (already excludes breaks)
-    // Otherwise fall back to calculating from timestamps
     let durationSeconds;
     if (elapsedTimeMs !== undefined) {
-      durationSeconds = Math.round(elapsedTimeMs / 1000);
+      durationSeconds = Math.floor(elapsedTimeMs / 1000);
     } else {
       const siteVisitData = siteVisitDoc.data();
       const entryTime = siteVisitData.entry_timestamp.toDate();
-      durationSeconds = Math.round((now - entryTime) / 1000);
+      durationSeconds = Math.floor((now - entryTime) / 1000);
     }
+
+    const allSiteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .get();
+
+    let totalShiftDuration = 0;
+    allSiteVisitsSnapshot.docs.forEach(doc => {
+      if (doc.id !== siteVisitDoc.id) {
+        totalShiftDuration += doc.data().duration || 0;
+      }
+    });
+
+    totalShiftDuration += durationSeconds;
+
+    await db.collection('shifts').doc(shiftId).update({
+      shift_duration: totalShiftDuration
+    });
 
     await db.collection('site_visits').doc(siteVisitDoc.id).update({
       exit_timestamp: now,
@@ -606,7 +555,8 @@ app.post('/api/shifts/endsitevisit', async (req, res) => {
       message: 'Site visit ended',
       siteVisitId: siteVisitDoc.id,
       duration: durationSeconds,
-      exitTime: now
+      exitTime: now,
+      shiftDuration: totalShiftDuration
     });
   } catch (error) {
     console.error('Error in /api/shifts/endsitevisit:', error);
@@ -614,13 +564,9 @@ app.post('/api/shifts/endsitevisit', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/clockout
- * Stores shift_duration in seconds instead of minutes
- */
 app.post('/api/shifts/clockout', async (req, res) => {
   try {
-    const { shiftId, latitude, longitude } = req.body;
+    const { shiftId, latitude, longitude, elapsedSeconds } = req.body;
 
     if (!shiftId) {
       return res.status(400).json({ error: 'Missing required field: shiftId' });
@@ -640,13 +586,10 @@ app.post('/api/shifts/clockout', async (req, res) => {
       .where('end_timestamp', '==', null)
       .get();
 
-      //console.log(`Found ${openActivitiesSnapshot.docs.length} open activities for shift ${shiftId}`);
-
     for (const activityDoc of openActivitiesSnapshot.docs) {
       const activityData = activityDoc.data();
       const startTime = activityData.start_timestamp.toDate();
-      const durationSeconds = Math.round((now - startTime) / 1000);
-      //console.log(`Activity ${activityDoc.id}: startTime=${startTime}, now=${now}, durationSeconds=${durationSeconds}`);
+      const durationSeconds = Math.floor((now - startTime) / 1000);
 
       await db.collection('activity_logs').doc(activityDoc.id).update({
         end_timestamp: now,
@@ -661,8 +604,14 @@ app.post('/api/shifts/clockout', async (req, res) => {
 
     for (const siteVisitDoc of openSiteVisitsSnapshot.docs) {
       const siteVisitData = siteVisitDoc.data();
-      const entryTime = siteVisitData.entry_timestamp.toDate();
-      const durationSeconds = Math.round((now - entryTime) / 1000);
+      let durationSeconds;
+
+      if (siteVisitData.duration) {
+        durationSeconds = siteVisitData.duration;
+      } else {
+        const entryTime = siteVisitData.entry_timestamp.toDate();
+        durationSeconds = Math.floor((now - entryTime) / 1000);
+      }
 
       await db.collection('site_visits').doc(siteVisitDoc.id).update({
         exit_timestamp: now,
@@ -670,10 +619,16 @@ app.post('/api/shifts/clockout', async (req, res) => {
       });
     }
 
-    const clockInTime = shiftData.clock_in_time.toDate();
-    const totalElapsedSeconds = Math.round((now - clockInTime) / 1000);
-    const breakDuration = shiftData.break_duration || 0;
-    const shiftDuration = totalElapsedSeconds - breakDuration;
+    const allSiteVisitsSnapshot = await db.collection('site_visits')
+      .where('shift_id', '==', shiftId)
+      .get();
+
+    let finalShiftDuration = 0;
+    allSiteVisitsSnapshot.docs.forEach(doc => {
+      finalShiftDuration += doc.data().duration || 0;
+    });
+
+    const shiftDuration = finalShiftDuration > 0 ? finalShiftDuration : (elapsedSeconds || 0);
 
     await db.collection('shifts').doc(shiftId).update({
       clock_out_time: now,
@@ -686,8 +641,6 @@ app.post('/api/shifts/clockout', async (req, res) => {
       message: 'Clock-out successful',
       shiftId: shiftId,
       clockOutTime: now,
-      totalElapsedSeconds: totalElapsedSeconds,
-      breakDuration: breakDuration,
       shiftDuration: shiftDuration
     });
   } catch (error) {
@@ -696,11 +649,6 @@ app.post('/api/shifts/clockout', async (req, res) => {
   }
 });
 
-/**
- * GET /api/shifts/:shiftId/summary
- * Returns all durations in seconds instead of minutes
- * Fetch complete shift summary with activities grouped under site visits
- */
 app.get('/api/shifts/:shiftId/summary', async (req, res) => {
   try {
     const { shiftId } = req.params;
@@ -712,7 +660,6 @@ app.get('/api/shifts/:shiftId/summary', async (req, res) => {
 
     const shiftData = shiftDoc.data();
 
-    // Fetch all activities for this shift
     const activitiesSnapshot = await db.collection('activity_logs')
       .where('shift_id', '==', shiftId)
       .get();
@@ -730,7 +677,6 @@ app.get('/api/shifts/:shiftId/summary', async (req, res) => {
       };
       allActivities.push(activity);
 
-      // Group by site_visit_id
       const siteVisitId = data.site_visit_id;
       if (siteVisitId) {
         if (!activitiesByVisit[siteVisitId]) {
@@ -740,7 +686,6 @@ app.get('/api/shifts/:shiftId/summary', async (req, res) => {
       }
     });
 
-    // Fetch all site visits for this shift
     const siteVisitsSnapshot = await db.collection('site_visits')
       .where('shift_id', '==', shiftId)
       .get();
@@ -756,17 +701,15 @@ app.get('/api/shifts/:shiftId/summary', async (req, res) => {
       };
     });
 
-    // Format breaks array
     const breaks = (shiftData.breaks || []).map(brk => ({
       break_start: brk.break_start?.toDate ? brk.break_start.toDate() : brk.break_start,
       break_end: brk.break_end?.toDate ? brk.break_end.toDate() : brk.break_end,
       duration: brk.duration || 0,
     }));
 
-    // Calculate total elapsed time from clock_in to clock_out (in seconds)
     const clockInTime = shiftData.clock_in_time?.toDate ? shiftData.clock_in_time.toDate() : shiftData.clock_in_time;
     const clockOutTime = shiftData.clock_out_time?.toDate ? shiftData.clock_out_time.toDate() : shiftData.clock_out_time;
-    const totalElapsedSeconds = Math.round((clockOutTime - clockInTime) / 1000);
+    const totalElapsedSeconds = Math.floor((clockOutTime - clockInTime) / 1000);
 
     res.json({
       id: shiftId,
@@ -788,10 +731,6 @@ app.get('/api/shifts/:shiftId/summary', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/:shiftId/submit
- * Mark shift as SUBMITTED and create audit logs for changed fields
- */
 app.post('/api/shifts/:shiftId/submit', async (req, res) => {
   try {
     const { shiftId } = req.params;
@@ -805,10 +744,8 @@ app.post('/api/shifts/:shiftId/submit', async (req, res) => {
     const now = new Date();
     const employeeName = shiftDoc.data().employee_name;
 
-    // Create audit logs for each changed field
     if (changes && Array.isArray(changes) && changes.length > 0) {
       for (const change of changes) {
-        // Only create audit log if value actually changed
         if (change.previousValue !== change.newValue) {
           const auditId = `auditlog_${shiftId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           await db.collection('audit_logs').doc(auditId).set({
@@ -825,7 +762,6 @@ app.post('/api/shifts/:shiftId/submit', async (req, res) => {
       }
     }
 
-    // Update shift status to SUBMITTED
     await db.collection('shifts').doc(shiftId).update({
       status: 'SUBMITTED',
       submitted_at: now
@@ -843,10 +779,6 @@ app.post('/api/shifts/:shiftId/submit', async (req, res) => {
   }
 });
 
-/**
- * POST /api/shifts/:shiftId/updatefield
- * Update a single field and track it for audit
- */
 app.post('/api/shifts/:shiftId/updatefield', async (req, res) => {
   try {
     const { shiftId } = req.params;
@@ -864,7 +796,6 @@ app.post('/api/shifts/:shiftId/updatefield', async (req, res) => {
       return res.status(400).json({ error: 'Invalid documentType' });
     }
 
-    // Get the document to find previous value
     const doc = await db.collection(collection).doc(documentId).get();
     if (!doc.exists) {
       return res.status(404).json({ error: 'Document not found' });
@@ -872,7 +803,6 @@ app.post('/api/shifts/:shiftId/updatefield', async (req, res) => {
 
     const previousValue = doc.data()[fieldName];
 
-    // Update the field
     await db.collection(collection).doc(documentId).update({
       [fieldName]: newValue
     });
@@ -887,27 +817,6 @@ app.post('/api/shifts/:shiftId/updatefield', async (req, res) => {
     });
   } catch (error) {
     console.error('Error in /api/shifts/:shiftId/updatefield:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-//
-app.get('/api/debug/firestore-collections', async (req, res) => {
-  try {
-    const collectionsToCheck = ['activities', 'projects', 'shifts', 'site_visits', 'activity_logs', 'inspectors', 'breaks', 'clock_ins', 'clock_in_failures', 'audit_logs'];
-    const result = {};
-
-    for (const collectionName of collectionsToCheck) {
-      const snapshot = await db.collection(collectionName).get();
-      result[collectionName] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        data: doc.data()
-      }));
-    }
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching Firestore collections:', error);
     res.status(500).json({ error: error.message });
   }
 });
