@@ -6,7 +6,10 @@ const db = require('./firebase');
 const app = express();
 const PORT = 5000;
 
-app.use(cors());
+//app.use(cors());
+app.use(cors({
+  origin: 'https://condition-survey-9b5b9.web.app'
+}));
 app.use(express.json());
 
 app.get('/', (req, res) => {
