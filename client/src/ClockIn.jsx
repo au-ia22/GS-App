@@ -1,4 +1,3 @@
-// ClockIn.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import './ClockIn.css';
 import { db } from './firebaseConfig';
@@ -249,7 +248,7 @@ export default function ClockIn() {
 
   const fetchInspectors = async () => {
     try {
-      const response = await fetch('http://192.168.12.124:5000/api/inspectors');
+      const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/inspectors');
       if (!response.ok) throw new Error('Failed to fetch inspectors');
       const data = await response.json();
       setInspectors(data);
@@ -260,7 +259,7 @@ export default function ClockIn() {
 
   const fetchProjects = async () => {
     try {
-      const response = await fetch('http://192.168.12.124:5000/api/projects');
+      const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/projects');
       if (!response.ok) throw new Error('Failed to fetch projects');
       const data = await response.json();
       setProjects(data);
@@ -754,7 +753,7 @@ export default function ClockIn() {
         setLoading(false);
         return;
       }
-      const response = await fetch('http://192.168.12.124:5000/api/shifts/clockin', {
+      const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/clockin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -821,8 +820,8 @@ export default function ClockIn() {
     setMessage('');
     try {
       const endpoint = isBreakActive
-        ? 'http://192.168.12.124:5000/api/shifts/endbreak'
-        : 'http://192.168.12.124:5000/api/shifts/startbreak';
+        ? 'https://geotime-697107870492.us-east1.run.app/api/shifts/endbreak'
+        : 'https://geotime-697107870492.us-east1.run.app/api/shifts/startbreak';
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -890,7 +889,7 @@ export default function ClockIn() {
       if (isActivityActive) {
         const activityParts = activityElapsedTime.split(':');
         const activityTotalMs = (parseInt(activityParts[0]) * 3600 + parseInt(activityParts[1]) * 60 + parseInt(activityParts[2])) * 1000;
-        const response = await fetch('http://192.168.12.124:5000/api/shifts/endactivity', {
+        const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/endactivity', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -928,7 +927,7 @@ export default function ClockIn() {
           setLoading(false);
           return;
         }
-        const response = await fetch('http://192.168.12.124:5000/api/shifts/startactivity', {
+        const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/startactivity', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -981,7 +980,7 @@ export default function ClockIn() {
         const hadPhases = currentSitePhases.length > 0;
         const siteVisitParts = siteVisitElapsedTime.split(':');
         const siteVisitTotalMs = (parseInt(siteVisitParts[0]) * 3600 + parseInt(siteVisitParts[1]) * 60 + parseInt(siteVisitParts[2])) * 1000;
-        const response = await fetch('http://192.168.12.124:5000/api/shifts/endsitevisit', {
+        const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/endsitevisit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1010,7 +1009,7 @@ export default function ClockIn() {
 
           const activityParts = activityElapsedTime.split(':');
           const activityTotalMs = (parseInt(activityParts[0]) * 3600 + parseInt(activityParts[1]) * 60 + parseInt(activityParts[2])) * 1000;
-          const activityResponse = await fetch('http://192.168.12.124:5000/api/shifts/endactivity', {
+          const activityResponse = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/endactivity', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1082,7 +1081,7 @@ export default function ClockIn() {
           setLoading(false);
           return;
         }
-        const response = await fetch('http://192.168.12.124:5000/api/shifts/startsitevisit', {
+        const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/startsitevisit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1103,7 +1102,7 @@ export default function ClockIn() {
           setSiteVisitStartTime(new Date(now.getTime() - siteVisitPausedMs));
           setSiteVisitPausedMs(0);
 
-          const activityResponse = await fetch('http://192.168.12.124:5000/api/shifts/startactivity', {
+          const activityResponse = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/startactivity', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1170,7 +1169,7 @@ export default function ClockIn() {
           parseInt(siteVisitParts[1]) * 60 +
           parseInt(siteVisitParts[2])) * 1000);
 
-      const response = await fetch('http://192.168.12.124:5000/api/shifts/clockout', {
+      const response = await fetch('https://geotime-697107870492.us-east1.run.app/api/shifts/clockout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1199,7 +1198,7 @@ export default function ClockIn() {
 
   const fetchAndShowSummary = async () => {
     try {
-      const response = await fetch(`http://192.168.12.124:5000/api/shifts/${currentShiftId}/summary`);
+      const response = await fetch(`https://geotime-697107870492.us-east1.run.app/api/shifts/${currentShiftId}/summary`);
       if (!response.ok) throw new Error('Failed to fetch summary');
       const data = await response.json();
       setSummaryData(data);
@@ -1279,7 +1278,7 @@ export default function ClockIn() {
           newValue: edit.newValue
         };
       });
-      const response = await fetch(`http://192.168.12.124:5000/api/shifts/${currentShiftId}/submit`, {
+      const response = await fetch(`https://geotime-697107870492.us-east1.run.app/api/shifts/${currentShiftId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ changes }),
