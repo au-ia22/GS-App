@@ -1,6 +1,8 @@
 // index.js
 
-process.env.GOOGLE_APPLICATION_CREDENTIALS = '/secrets/firebase-key'
+//process.env.GOOGLE_APPLICATION_CREDENTIALS = '/secrets/firebase-key'
+
+process.env.GOOGLE_APPLICATION_CREDENTIALS = '/secrets/firebase-key/firebase-key';
 
 const express = require('express');
 const cors = require('cors');
