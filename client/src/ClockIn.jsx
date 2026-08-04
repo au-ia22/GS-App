@@ -249,6 +249,7 @@ export default function ClockIn() {
   }, [selectedInspector, inspectorSearch, selectedProject, selectedPhase, projectSearch, phaseSearch, selectedActivity, activitySearch]);
 
   const fetchInspectors = async () => {
+    console.log('fetchInspectors called, API_URL:', API_URL);
     try {
       const response = await fetch(`${API_URL}/api/inspectors`);
       if (!response.ok) throw new Error('Failed to fetch inspectors');
