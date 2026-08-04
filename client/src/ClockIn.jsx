@@ -85,7 +85,9 @@ export default function ClockIn() {
     { latitude: 40.102063650000005, longitude: -75.4128611, name: 'Current Location' }
   ];
 
-  const API_URL = process.env.REACT_APP_API_URL;
+  //const API_URL = process.env.REACT_APP_API_URL;
+
+  const API_URL = 'https://geotime-697107870492.us-east1.run.app';
 
   useEffect(() => {
     fetchInspectors();
