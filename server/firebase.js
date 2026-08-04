@@ -12,10 +12,25 @@ const db = new Firestore({
 module.exports = db;
 */
 
+/*
 const { Firestore } = require('@google-cloud/firestore');
 
 const db = new Firestore({
   projectId: 'condition-survey-9b5b9'
 });
+
+module.exports = db;
+*/
+
+const { Firestore } = require('@google-cloud/firestore');
+
+console.log('GOOGLE_APPLICATION_CREDENTIALS:', process.env.GOOGLE_APPLICATION_CREDENTIALS);
+console.log('Initializing Firestore with projectId: condition-survey-9b5b9');
+
+const db = new Firestore({
+  projectId: 'condition-survey-9b5b9'
+});
+
+console.log('Firestore initialized successfully');
 
 module.exports = db;
